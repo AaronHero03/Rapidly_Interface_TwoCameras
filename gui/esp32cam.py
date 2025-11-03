@@ -6,7 +6,6 @@ import numpy as np
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
-
 def extract_host_from_stream_url(url: str) -> str:
     if not url:
         return ""

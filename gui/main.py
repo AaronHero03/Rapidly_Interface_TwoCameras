@@ -52,8 +52,6 @@ class DragAwareSlider(QSlider):
         super().mouseReleaseEvent(e)
         self.dragEnded.emit()
 
-
-# ===== Panel de la cámara =====
 class CameraPanel(QGroupBox):
     def __init__(self, title: str, url: str):
         super().__init__(title)
@@ -85,7 +83,7 @@ class CameraPanel(QGroupBox):
         # Barra FPS
         self.fps_bar = QLabel()
         self.fps_bar.setFixedHeight(8)
-        self.fps_bar.setFixedWidth(6)
+        # self.fps_bar.setFixedWidth(6) <- ELIMINADO para permitir expansión horizontal del layout
         self.fps_bar.setStyleSheet("background:#333; border-radius:4px;")
 
         self.hazmat_box = QTextEdit(); self.hazmat_box.setReadOnly(True)
@@ -99,12 +97,12 @@ class CameraPanel(QGroupBox):
         self.view = QLabel("No video")
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.view.setStyleSheet("background:#000; color:#aaa; border:1px solid #333; border-radius:10px;")
-        self.view.setMinimumSize(800, 450)
+        self.view.setMinimumSize(QSize(400, 200)) # Mínimo más flexible
         # Menu
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._show_view_menu)
 
-        # Columna izquierda
+        # Columna izquierda (Controles y Logs)
         left = QVBoxLayout()
         left.addWidget(QLabel("Stream URL:"))
         left.addWidget(self.url_edit)
@@ -112,8 +110,13 @@ class CameraPanel(QGroupBox):
         left.addLayout(row)
         row2 = QHBoxLayout(); row2.addWidget(self.chk_haz); row2.addWidget(self.chk_qr)
         left.addLayout(row2)
-        left.addWidget(self.fps_label)
-        left.addWidget(self.status_dot)
+        
+        # Elementos de estatus en una fila horizontal
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.fps_label)
+        status_row.addWidget(self.status_dot)
+        left.addLayout(status_row)
+        
         left.addWidget(self.fps_bar)
 
         # ---- Tuning ----
@@ -274,7 +277,7 @@ class CameraPanel(QGroupBox):
         QTimer.singleShot(200, lambda: self._set_status_connected_if_running())
 
     def _apply_preset(self, *, aec, agc, awb, brightness, contrast, saturation,
-                      ae_level, aec_value, agc_gain):
+                             ae_level, aec_value, agc_gain):
         blockers = [QSignalBlocker(self.cb_aec), QSignalBlocker(self.cb_agc), QSignalBlocker(self.cb_awb)]
         self.cb_aec.setChecked(bool(aec)); self.cb_agc.setChecked(bool(agc)); self.cb_awb.setChecked(bool(awb))
         del blockers
@@ -307,7 +310,7 @@ class CameraPanel(QGroupBox):
 
         # Inicializar detección de QR, solamente si están presentes
         haz_factory = (lambda: HazmatYOLO("models/yolo.cfg", "models/yolo.weights", "models/labels.names",
-                                          (416, 416), 0.8, 0.4, "opencv")) if HazmatYOLO else None
+                                             (416, 416), 0.8, 0.4, "opencv")) if HazmatYOLO else None
         qr_factory = (lambda: QRScanner()) if QRScanner else None
 
         self.worker = CameraWorker(url, hazmat_factory=haz_factory, qr_factory=qr_factory)
@@ -376,8 +379,8 @@ class CameraPanel(QGroupBox):
         self._last_frame_ts = time.monotonic()
         pix = np_to_qpixmap(frame_bgr)
         scaled = pix.scaled(self.view.size(),
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation)
+                             Qt.AspectRatioMode.KeepAspectRatio,
+                             Qt.TransformationMode.SmoothTransformation)
         self.view.setPixmap(scaled)
 
     def on_fps(self, fps: float):
@@ -416,7 +419,7 @@ class CameraPanel(QGroupBox):
         if chosen is act_snap and self.view.pixmap():
             pm = self.view.pixmap()
             path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
-                                                  "Images (*.png *.jpg)")
+                                                    "Images (*.png *.jpg)")
             if path: pm.save(path)
         elif chosen is act_mirror:
             self.cb_hm.setChecked(not self.cb_hm.isChecked())
@@ -463,47 +466,34 @@ class CameraPanel(QGroupBox):
         self.cb_vf.setChecked(bool(prof.get("vflip",0)))
         self._set_param(hmirror=int(self.cb_hm.isChecked()), vflip=int(self.cb_vf.isChecked()))
 
-
-# ===== Panel | Magnetómetro =====
-
 from collections import deque
-
 class _Sparkline(QWidget):
-    """Tiny sparkline widget for one channel."""
     def __init__(self, color="#80cbc4", max_samples=200, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(40)
         self.setMinimumWidth(200)
         self._data = deque(maxlen=max_samples)
         self._color = QColor(color)
-
     def append(self, v: float):
         self._data.append(v)
         self.update()
-
     def clear(self):
         self._data.clear()
         self.update()
-
     def paintEvent(self, event):
-        if not self._data:
-            return
+        if not self._data: return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
-
         vmin = min(self._data)
         vmax = max(self._data)
         rng = (vmax - vmin) or 1.0
-
         pen = QPen(self._color, 2.0)
         p.setPen(pen)
-
         def map_point(i, v, n):
             x = int(i * (w - 4) / max(1, n - 1)) + 2
             y = int(h - 2 - (v - vmin) * (h - 4) / rng)
             return x, y
-
         n = len(self._data)
         last_xy = None
         for i, v in enumerate(self._data):
@@ -513,38 +503,28 @@ class _Sparkline(QWidget):
             last_xy = xy
         p.end()
 
-
 class MagnetometerPanel(QGroupBox):
     def __init__(self, title: str, url: str):
         super().__init__(title)
         self.worker: MagnetometerWorker | None = None
-
         self.url_edit = QLineEdit(url)
-        self.url_edit.setStyleSheet(
-            "font-size: 11px; font-family: monospace; color:#9efc6a; "
-            "background:#1b1b1d; border:1px solid #555; border-radius:6px;"
-        )
+        self.url_edit.setStyleSheet("font-size: 11px; font-family: monospace; color:#9efc6a; background:#1b1b1d; border:1px solid #555; border-radius:6px;")
         self.btn_start = QPushButton("Connect")
         self.btn_stop  = QPushButton("Disconnect"); self.btn_stop.setEnabled(False)
         self.status    = QLabel("● disconnected"); self.status.setStyleSheet("color:#e53935; font-weight:bold;")
         self.hz_label  = QLabel("~ Hz: —")
-
         self.lab_x = QLabel("X: —"); self.lab_x.setStyleSheet("color:#80cbc4; font: 600 14px 'Inter'")
         self.lab_y = QLabel("Y: —"); self.lab_y.setStyleSheet("color:#ffab91; font: 600 14px 'Inter'")
         self.lab_z = QLabel("Z: —"); self.lab_z.setStyleSheet("color:#fff59d; font: 600 14px 'Inter'")
-
         self.sp_x = _Sparkline("#80cbc4")
         self.sp_y = _Sparkline("#ffab91")
         self.sp_z = _Sparkline("#fff59d")
-
         top = QHBoxLayout()
         top.addWidget(QLabel("URL:")); top.addWidget(self.url_edit, 1)
         top.addWidget(self.btn_start); top.addWidget(self.btn_stop)
-
         vals = QHBoxLayout()
         vals.addWidget(self.lab_x); vals.addWidget(self.lab_y); vals.addWidget(self.lab_z)
         vals.addStretch(1); vals.addWidget(self.hz_label); vals.addWidget(self.status)
-
         root = QVBoxLayout()
         root.addLayout(top)
         root.addLayout(vals)
@@ -552,17 +532,12 @@ class MagnetometerPanel(QGroupBox):
         root.addWidget(self.sp_y)
         root.addWidget(self.sp_z)
         self.setLayout(root)
-
         self.btn_start.clicked.connect(self.start_stream)
         self.btn_stop .clicked.connect(self.stop_stream)
-
-    # --- Acciones ---
     def start_stream(self):
-        if self.worker and self.worker.isRunning():
-            return
+        if self.worker and self.worker.isRunning(): return
         url = self.url_edit.text().strip()
-        if not url:
-            return
+        if not url: return
         self.worker = MagnetometerWorker(url)
         self.worker.reading.connect(self.on_reading)
         self.worker.rate.connect(self.on_rate)
@@ -571,52 +546,52 @@ class MagnetometerPanel(QGroupBox):
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self._set_status("● connecting…", "#fdd835")
-
     def stop_stream(self):
-        if self.worker:
-            self.worker.stop()
-            self.worker = None
+        if self.worker: self.worker.stop(); self.worker = None
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        self._set_status("● disconnected", "#e53935")
         self.hz_label.setText("~ Hz: —")
         self.sp_x.clear(); self.sp_y.clear(); self.sp_z.clear()
-
-    # --- Casillas ---
+        self._set_status("● disconnected", "#e53935")
     def on_status(self, ok: bool, msg: str):
         color = "#43a047" if ok else "#fdd835"
         self._set_status(f"● {msg}", color)
-
     def on_rate(self, hz: float):
         self.hz_label.setText(f"~ Hz: {hz:.1f}")
-
     def on_reading(self, x: float, y: float, z: float):
         self.lab_x.setText(f"X: {x:6.2f} µT")
         self.lab_y.setText(f"Y: {y:6.2f} µT")
         self.lab_z.setText(f"Z: {z:6.2f} µT")
         self.sp_x.append(x); self.sp_y.append(y); self.sp_z.append(z)
         self._set_status("● connected", "#43a047")
-
     def _set_status(self, txt: str, color_hex: str):
         self.status.setText(txt)
         self.status.setStyleSheet(f"color:{color_hex}; font-weight:bold;")
 
 
-# ===== Ventana principal =====
+# ===== Ventana principal (MODIFICADA) =====
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ESP32-CAM Multi-Camera (Live)")
-        self.setMinimumSize(QSize(1600, 900))
+        self.setWindowTitle("ESP32-CAM & Magnetometer Live View")
+        self.setMinimumSize(QSize(1000, 700)) # Ajuste de tamaño mínimo
 
-        grid = QGridLayout()
-        grid.addWidget(CameraPanel("Camera 1", "http://192.168.50.231:81/stream"), 0, 0)
-        grid.addWidget(CameraPanel("Camera 2", "http://192.168.50.232:81/stream"), 0, 1)
+        # --- Creación de Paneles ---
+        # 1. Cámara (columna izquierda)
+        self.camera_panel = CameraPanel("Live Camera Stream (ESP32-CAM)", "http://192.168.137.200/stream")
+        # 2. Magnetómetro (columna derecha)
+        self.magnetometer_panel = MagnetometerPanel("FXOS8700 Magnetometer", "http://192.168.50.143/magnetometer/stream")
 
-        #Panel | Magnetómetro
-        grid.addWidget(MagnetometerPanel("FXOS8700 Magnetometer", "http://192.168.50.143/magnetometer/stream"), 1, 0, 1, 2)
+        # --- Estructura de Diseño Principal (QHBoxLayout) ---
+        root_layout = QHBoxLayout()
+        
+        # Columna Izquierda: Cámara (Stretch 2: Ocupa el doble de espacio)
+        root_layout.addWidget(self.camera_panel, 2)
+        
+        # Columna Derecha: Magnetómetro (Stretch 1: Ocupa menos espacio)
+        root_layout.addWidget(self.magnetometer_panel, 1)
 
-        container = QWidget(); container.setLayout(grid)
+        container = QWidget(); container.setLayout(root_layout)
         self.setCentralWidget(container)
 
         # Barra de utilidades
@@ -628,32 +603,30 @@ class MainWindow(QMainWindow):
         tb.addAction(act_start_all); tb.addAction(act_stop_all)
         tb.addSeparator(); tb.addAction(act_snap); tb.addSeparator(); tb.addAction(act_full)
 
-        self.panels = []
-        central_grid = self.centralWidget().layout()
-        for r in range(central_grid.rowCount()):
-            for c in range(central_grid.columnCount()):
-                item = central_grid.itemAtPosition(r, c)
-                if item and item.widget() and isinstance(item.widget(), CameraPanel):
-                    self.panels.append(item.widget())
-
+        # Ahora solo tenemos la CameraPanel
+        self.panels = [self.camera_panel]
+        
+        # Conectar acciones
         def start_all():
-            for p in self.panels: p.start_stream()
+            self.camera_panel.start_stream()
+            self.magnetometer_panel.start_stream()
 
         def stop_all():
-            for p in self.panels: p.stop_stream()
+            self.camera_panel.stop_stream()
+            self.magnetometer_panel.stop_stream()
 
         def toggle_full():
             if self.isFullScreen(): self.showNormal()
             else: self.showFullScreen()
 
         def snapshot_active():
-            for p in self.panels:
-                if p.worker and p.worker.isRunning() and p.view.pixmap():
-                    pm = p.view.pixmap()
-                    path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
-                                                          "Images (*.png *.jpg)")
-                    if path: pm.save(path)
-                    break
+            # Snapshot de la única cámara activa
+            p = self.camera_panel
+            if p.worker and p.worker.isRunning() and p.view.pixmap():
+                pm = p.view.pixmap()
+                path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
+                                                      "Images (*.png *.jpg)")
+                if path: pm.save(path)
 
         act_start_all.triggered.connect(start_all)
         act_stop_all .triggered.connect(stop_all)
@@ -663,10 +636,13 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("F"), self, activated=toggle_full)
         QShortcut(QKeySequence("S"), self, activated=snapshot_active)
         def space_toggle():
-            if not self.panels: return
-            p = self.panels[0]
-            if p.worker and p.worker.isRunning(): p.stop_stream()
-            else: p.start_stream()
+            p = self.camera_panel
+            if p.worker and p.worker.isRunning(): 
+                p.stop_stream()
+                self.magnetometer_panel.stop_stream()
+            else: 
+                p.start_stream()
+                self.magnetometer_panel.start_stream()
         QShortcut(QKeySequence("Space"), self, activated=space_toggle)
 
 
@@ -675,9 +651,14 @@ def main():
     app.setStyleSheet("""
         QMainWindow { background-color: #121212; }
         QGroupBox {
-            border: 2px solid #333; border-radius: 10px;
-            margin-top: 10px; background-color: #1d1d1f; color: #ddd;
-            font-weight: 600; font-size: 14px;
+            border: 2px solid #333; 
+            border-radius: 10px;
+            margin-top: 10px; 
+            padding-top: 25px; 
+            background-color: #1d1d1f; 
+            color: #ddd;
+            font-weight: 600; 
+            font-size: 14px;
         }
         QLabel { color: #ccc; font-size: 14px; }
         QPushButton {

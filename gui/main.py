@@ -8,8 +8,8 @@ import sys, json, time
 import numpy as np
 import cv2
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QSignalBlocker, QPoint
-from PyQt6.QtGui import QImage, QPixmap, QAction, QKeySequence, QShortcut, QPainter, QPen, QColor
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QSignalBlocker, QPoint 
+from PyQt6.QtGui import QImage, QPixmap, QAction, QKeySequence, QShortcut, QPainter, QPen, QColor, QTransform
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
     QHBoxLayout, QVBoxLayout, QGroupBox, QCheckBox, QTextEdit, QMessageBox,
@@ -98,7 +98,10 @@ class CameraPanel(QGroupBox):
         self.view = QLabel("No video")
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.view.setStyleSheet("background:#000; color:#aaa; border:1px solid #333; border-radius:10px;")
-        self.view.setMinimumSize(QSize(400, 200)) # Mínimo más flexible
+        self.view.setMinimumSize(QSize(400, 200))
+
+        self._rotation_angle = 0
+
         # Menu
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._show_view_menu)
@@ -374,12 +377,33 @@ class CameraPanel(QGroupBox):
         else:
             self._set_status("● connected", "#43a047")
 
+    def _rotate_view(self, angle: int):
+        """Aplica una rotación al QPixmap y actualiza la vista, manejando las dimensiones."""
+        
+        # Almacena el ángulo acumulado.
+        self._rotation_angle = (self._rotation_angle + angle) % 360
+        
+        if self.worker and self.worker.isRunning() and self._last_frame.size > 0:
+            self.on_frame(self._last_frame)
+
     def on_frame(self, frame_bgr: np.ndarray):
         self._last_frame_ts = time.monotonic()
+        self._last_frame = frame_bgr # Guardar el último frame
+        
         pix = np_to_qpixmap(frame_bgr)
-        scaled = pix.scaled(self.view.size(),
+        
+        # Crear la transformación de rotación
+        transform = QTransform().rotate(self._rotation_angle)
+        
+        # Aplicar la rotación al QPixmap
+        pix_rotated = pix.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+        
+        # 1. Escalar el QPixmap rotado para que se ajuste al tamaño del QLabel.
+        #    Usamos el tamaño actual del QLabel (self.view.size()).
+        scaled = pix_rotated.scaled(self.view.size(),
                              Qt.AspectRatioMode.KeepAspectRatio,
                              Qt.TransformationMode.SmoothTransformation)
+        
         self.view.setPixmap(scaled)
 
     def on_fps(self, fps: float):
@@ -411,11 +435,38 @@ class CameraPanel(QGroupBox):
     # ---- Menú en video (click derecho) ----
     def _show_view_menu(self, pos: QPoint):
         menu = QMenu(self.view)
+        
+        # Opciones de rotación
+        menu.addSeparator()
+        act_rot_0   = menu.addAction("Rotate 0°")
+        act_rot_90  = menu.addAction("Rotate +90°") # Rotación relativa
+        act_rot_180 = menu.addAction("Rotate 180°")
+        act_rot_270 = menu.addAction("Rotate 270°")
+        menu.addSeparator()
+        
         act_snap   = menu.addAction("Save Snapshot…")
         act_mirror = menu.addAction("Toggle Mirror")
         act_flip   = menu.addAction("Toggle Flip")
+        
         chosen = menu.exec(self.view.mapToGlobal(pos))
-        if chosen is act_snap and self.view.pixmap():
+        
+        if chosen is act_rot_0:
+            # Rotación absoluta
+            self._rotation_angle = 0
+            self._rotate_view(0)
+        elif chosen is act_rot_90:
+            # Rotación relativa de +90 grados
+            self._rotate_view(90)
+        elif chosen is act_rot_180:
+            # Rotación absoluta
+            self._rotation_angle = 180
+            self._rotate_view(0)
+        elif chosen is act_rot_270:
+            # Rotación absoluta
+            self._rotation_angle = 270
+            self._rotate_view(0)
+        elif chosen is act_snap and self.view.pixmap():
+            # ... (código existente de snapshot)
             pm = self.view.pixmap()
             path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
                                                      "Images (*.png *.jpg)")

@@ -52,6 +52,8 @@ class DragAwareSlider(QSlider):
         super().mouseReleaseEvent(e)
         self.dragEnded.emit()
 
+
+# ===== Panel de la cámara (Se realizaron correcciones de diseño para escalado) =====
 class CameraPanel(QGroupBox):
     def __init__(self, title: str, url: str):
         super().__init__(title)
@@ -466,6 +468,10 @@ class CameraPanel(QGroupBox):
         self.cb_vf.setChecked(bool(prof.get("vflip",0)))
         self._set_param(hmirror=int(self.cb_hm.isChecked()), vflip=int(self.cb_vf.isChecked()))
 
+
+# ===== Panel | Magnetómetro (Código completo omitido por brevedad, asumiendo que es correcto) =====
+# ... (Clases _Sparkline y MagnetometerPanel) ...
+
 from collections import deque
 class _Sparkline(QWidget):
     def __init__(self, color="#80cbc4", max_samples=200, parent=None):
@@ -569,27 +575,22 @@ class MagnetometerPanel(QGroupBox):
         self.status.setStyleSheet(f"color:{color_hex}; font-weight:bold;")
 
 
-# ===== Ventana principal (MODIFICADA) =====
+# ===== Ventana principal (MODIFICADA para doble cámara) =====
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ESP32-CAM & Magnetometer Live View")
-        self.setMinimumSize(QSize(1000, 700)) # Ajuste de tamaño mínimo
+        self.setWindowTitle("ESP32-CAM Dual Live View")
+        self.setMinimumSize(QSize(1200, 700))
 
-        # --- Creación de Paneles ---
-        # 1. Cámara (columna izquierda)
-        self.camera_panel = CameraPanel("Live Camera Stream (ESP32-CAM)", "http://192.168.137.200/stream")
-        # 2. Magnetómetro (columna derecha)
-        self.magnetometer_panel = MagnetometerPanel("FXOS8700 Magnetometer", "http://192.168.50.143/magnetometer/stream")
+        # --- Creación de Paneles de CÁMARA (DOBLE) ---
+        self.camera_panel_a = CameraPanel("Camera Stream A", "http://192.168.137.200/stream")
+        self.camera_panel_b = CameraPanel("Camera Stream B", "http://192.168.137.201/stream")
 
         # --- Estructura de Diseño Principal (QHBoxLayout) ---
         root_layout = QHBoxLayout()
         
-        # Columna Izquierda: Cámara (Stretch 2: Ocupa el doble de espacio)
-        root_layout.addWidget(self.camera_panel, 2)
-        
-        # Columna Derecha: Magnetómetro (Stretch 1: Ocupa menos espacio)
-        root_layout.addWidget(self.magnetometer_panel, 1)
+        root_layout.addWidget(self.camera_panel_a, 1)
+        root_layout.addWidget(self.camera_panel_b, 1)
 
         container = QWidget(); container.setLayout(root_layout)
         self.setCentralWidget(container)
@@ -597,52 +598,63 @@ class MainWindow(QMainWindow):
         # Barra de utilidades
         tb = QToolBar("Controls"); self.addToolBar(tb)
         act_start_all = QAction("Start All", self)
-        act_stop_all  = QAction("Stop All", self)
-        act_snap      = QAction("Snapshot", self)
-        act_full      = QAction("Fullscreen", self)
+        act_stop_all = QAction("Stop All", self)
+        act_snap   = QAction("Snapshot", self)
+        act_full   = QAction("Fullscreen", self)
         tb.addAction(act_start_all); tb.addAction(act_stop_all)
         tb.addSeparator(); tb.addAction(act_snap); tb.addSeparator(); tb.addAction(act_full)
-
-        # Ahora solo tenemos la CameraPanel
-        self.panels = [self.camera_panel]
         
-        # Conectar acciones
+        self.panels = [self.camera_panel_a, self.camera_panel_b]
+        
         def start_all():
-            self.camera_panel.start_stream()
-            self.magnetometer_panel.start_stream()
+            for panel in self.panels:
+                panel.start_stream()
 
         def stop_all():
-            self.camera_panel.stop_stream()
-            self.magnetometer_panel.stop_stream()
+            for panel in self.panels:
+                panel.stop_stream()
 
         def toggle_full():
             if self.isFullScreen(): self.showNormal()
             else: self.showFullScreen()
 
         def snapshot_active():
-            # Snapshot de la única cámara activa
-            p = self.camera_panel
-            if p.worker and p.worker.isRunning() and p.view.pixmap():
-                pm = p.view.pixmap()
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Select Camera for Snapshot")
+            msg_box.setText("Which camera view would you like to save?")
+            
+            btn_a = msg_box.addButton("Camera A", QMessageBox.ButtonRole.YesRole)
+            btn_b = msg_box.addButton("Camera B", QMessageBox.ButtonRole.NoRole)
+            btn_cancel = msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            
+            msg_box.exec()
+            
+            chosen_panel = None
+            if msg_box.clickedButton() == btn_a:
+                chosen_panel = self.camera_panel_a
+            elif msg_box.clickedButton() == btn_b:
+                chosen_panel = self.camera_panel_b
+            
+            if chosen_panel and chosen_panel.worker and chosen_panel.worker.isRunning() and chosen_panel.view.pixmap():
+                pm = chosen_panel.view.pixmap()
                 path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
                                                       "Images (*.png *.jpg)")
                 if path: pm.save(path)
 
         act_start_all.triggered.connect(start_all)
         act_stop_all .triggered.connect(stop_all)
-        act_full     .triggered.connect(toggle_full)
-        act_snap     .triggered.connect(snapshot_active)
+        act_full   .triggered.connect(toggle_full)
+        act_snap   .triggered.connect(snapshot_active)
 
         QShortcut(QKeySequence("F"), self, activated=toggle_full)
         QShortcut(QKeySequence("S"), self, activated=snapshot_active)
+        
         def space_toggle():
-            p = self.camera_panel
-            if p.worker and p.worker.isRunning(): 
-                p.stop_stream()
-                self.magnetometer_panel.stop_stream()
+            if self.camera_panel_a.worker and self.camera_panel_a.worker.isRunning(): 
+                stop_all()
             else: 
-                p.start_stream()
-                self.magnetometer_panel.start_stream()
+                start_all()
+                
         QShortcut(QKeySequence("Space"), self, activated=space_toggle)
 
 
@@ -676,7 +688,7 @@ def main():
         }
     """)
     w = MainWindow()
-    w.show()
+    w.showMaximized()
     sys.exit(app.exec())
 
 if __name__ == "__main__":

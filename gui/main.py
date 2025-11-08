@@ -7,82 +7,103 @@ os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
 import sys, json, time
 import numpy as np
 import cv2
+<<<<<<< HEAD
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QSignalBlocker, QPoint 
 from PyQt6.QtGui import QImage, QPixmap, QAction, QKeySequence, QShortcut, QPainter, QPen, QColor, QTransform
+=======
+from collections import deque
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QSignalBlocker, QPoint, QMutex, QMutexLocker
+from PyQt6.QtGui import QImage, QPixmap, QAction, QKeySequence, QShortcut, QPainter, QPen, QColor
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
     QHBoxLayout, QVBoxLayout, QGroupBox, QCheckBox, QTextEdit, QMessageBox,
     QGridLayout, QSlider, QToolBar, QFileDialog, QMenu
 )
-
-# ---- Detecciones ----
-try:
-    from hazmat import HazmatYOLO
-except Exception:
-    HazmatYOLO = None
-
-try:
-    from qrscan import QRScanner
-except Exception:
-    QRScanner = None
-
-# ---- Cliente de la cámara ----
-from esp32cam import CameraWorker, ESP32CamClient, extract_host_from_stream_url
-
-# ---- Magnetómetro ----
+from hazmat import HazmatYOLO
+from qrscan import QRScanner
+from esp32cam import CameraWorker, ESP32CamClient, extract_host_from_stream_url, ParameterSetterThread
 from magnetometer import MagnetometerWorker
 
-
-# ===== Helpers =====
 def np_to_qpixmap(img_bgr: np.ndarray) -> QPixmap:
     h, w = img_bgr.shape[:2]
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     qimg = QImage(img_rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888)
     return QPixmap.fromImage(qimg)
 
-
 class DragAwareSlider(QSlider):
     dragStarted = pyqtSignal()
     dragEnded   = pyqtSignal()
+
     def mousePressEvent(self, e):
         self.dragStarted.emit()
         super().mousePressEvent(e)
+
     def mouseReleaseEvent(self, e):
         super().mouseReleaseEvent(e)
         self.dragEnded.emit()
 
 
+<<<<<<< HEAD
 # ===== Panel de la cámara (Se realizaron correcciones de diseño para escalado) =====
+=======
+class FileIOWorker(QThread):
+    finished = pyqtSignal(bool, str)
+    
+    def __init__(self, operation: str, path: str, data=None):
+        super().__init__()
+        self.operation = operation
+        self.path = path
+        self.data = data
+        self.result = None
+        
+    def run(self):
+        try:
+            if self.operation == 'save':
+                with open(self.path, "w") as f:
+                    json.dump(self.data, f, indent=2)
+                self.finished.emit(True, self.path)
+            elif self.operation == 'load':
+                with open(self.path, "r") as f:
+                    self.result = json.load(f)
+                self.finished.emit(True, self.path)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 class CameraPanel(QGroupBox):
     def __init__(self, title: str, url: str):
         super().__init__(title)
         self.url = url
         self.worker: CameraWorker | None = None
-        self.client: ESP32CamClient | None = ESP32CamClient(url)  
+        self.client: ESP32CamClient | None = ESP32CamClient(url)
+        
+        self._state_mutex = QMutex()
         self._last_frame_ts = time.monotonic()
         self._restart_in_progress = False
+        
+        self._param_setter: ParameterSetterThread | None = None
+        self._file_worker: FileIOWorker | None = None
 
-        # UI
         self.url_edit = QLineEdit(url)
         self.url_edit.setStyleSheet(
             "font-size: 11px; font-family: monospace; color:#9efc6a; "
             "background:#1b1b1d; border:1px solid #555; border-radius:6px;"
         )
         self.btn_start = QPushButton("Start")
-        self.btn_stop  = QPushButton("Stop"); self.btn_stop.setEnabled(False)
+        self.btn_stop = QPushButton("Stop"); self.btn_stop.setEnabled(False)
 
         self.chk_haz = QCheckBox("Hazmat")
-        self.chk_qr  = QCheckBox("QR")
+        self.chk_qr = QCheckBox("QR")
         self.chk_haz.setStyleSheet("color: #9efc6a; font-weight: bold;")
         self.chk_qr.setStyleSheet("color: #ffd54f; font-weight: bold;")
         self.fps_label = QLabel("FPS: —")
 
-        # LED de estatus
         self.status_dot = QLabel("● disconnected")
-        self.status_dot.setStyleSheet("color:#e53935; font-weight:bold;")  # red
+        self.status_dot.setStyleSheet("color:#e53935; font-weight:bold;")
 
-        # Barra FPS
         self.fps_bar = QLabel()
         self.fps_bar.setFixedHeight(8)
         self.fps_bar.setStyleSheet("background:#333; border-radius:4px;")
@@ -98,6 +119,7 @@ class CameraPanel(QGroupBox):
         self.view = QLabel("No video")
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.view.setStyleSheet("background:#000; color:#aaa; border:1px solid #333; border-radius:10px;")
+<<<<<<< HEAD
         self.view.setMinimumSize(QSize(400, 200))
 
         self._rotation_angle = 0
@@ -107,12 +129,23 @@ class CameraPanel(QGroupBox):
         self.view.customContextMenuRequested.connect(self._show_view_menu)
 
         # Columna izquierda (Controles y Logs)
+=======
+        self.view.setMinimumSize(800, 450)
+        
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(self._show_view_menu)
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         left = QVBoxLayout()
         left.addWidget(QLabel("Stream URL:"))
         left.addWidget(self.url_edit)
-        row = QHBoxLayout(); row.addWidget(self.btn_start); row.addWidget(self.btn_stop)
+        row = QHBoxLayout()
+        row.addWidget(self.btn_start)
+        row.addWidget(self.btn_stop)
         left.addLayout(row)
-        row2 = QHBoxLayout(); row2.addWidget(self.chk_haz); row2.addWidget(self.chk_qr)
+        row2 = QHBoxLayout()
+        row2.addWidget(self.chk_haz)
+        row2.addWidget(self.chk_qr)
         left.addLayout(row2)
         
         # Elementos de estatus en una fila horizontal
@@ -123,34 +156,35 @@ class CameraPanel(QGroupBox):
         
         left.addWidget(self.fps_bar)
 
-        # ---- Tuning ----
         left.addSpacing(6)
         left.addWidget(QLabel("— Tuning —"))
 
+<<<<<<< HEAD
         # Estilo de los checkboxes (SOLO para Hazmat/QR/Mirror/Flip)
+=======
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         checkbox_style = """
-        QCheckBox {
-            color: white;
-            font-weight: bold;
-        }
-        QCheckBox::indicator {
-            width: 16px;
-            height: 16px;
-            border-radius: 3px;
-            border: 1px solid #aaa;
-            background-color: #2b2b2e;
-        }
-        QCheckBox::indicator:checked {
-            background-color: #00c853;
-            border: 1px solid #00e676;
-        }
-        QCheckBox::indicator:unchecked {
-            background-color: #1b1b1d;
-            border: 1px solid #555;
-        }
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                border: 1px solid #aaa;
+                background-color: #2b2b2e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #00c853;
+                border: 1px solid #00e676;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #1b1b1d;
+                border: 1px solid #555;
+            }
         """
 
-        # Debounce para las llamadas | /set 
         self._tune_debounce = QTimer(self)
         self._tune_debounce.setSingleShot(True)
         self._tune_debounce.setInterval(320)
@@ -176,7 +210,9 @@ class CameraPanel(QGroupBox):
             lab.setStyleSheet("color:white;")
             row.addWidget(lab)
             s = klass(Qt.Orientation.Horizontal)
-            s.setMinimum(minv); s.setMaximum(maxv); s.setValue(init)
+            s.setMinimum(minv)
+            s.setMaximum(maxv)
+            s.setValue(init)
             s.setFixedWidth(160)
             s.valueChanged.connect(lambda _v: schedule(lambda: apply_fn(s.value())))
             row.addWidget(s)
@@ -190,6 +226,7 @@ class CameraPanel(QGroupBox):
             left.addWidget(c)
             return c
 
+<<<<<<< HEAD
         # Configuraciones para las cámaras
         self.sl_bright = add_slider("Brightness", -2, 2, 0, lambda v: self._set_param(brightness=v))
         self.sl_contr = add_slider("Contrast",  -2, 2, 0, lambda v: self._set_param(contrast=v))
@@ -207,9 +244,25 @@ class CameraPanel(QGroupBox):
         self.sl_exp = add_slider("Exposure", 0, 1200, 300, lambda v: self._set_param(aec_value=v), klass=DragAwareSlider)
         self.sl_gain = add_slider("Gain",   0, 30,  8, lambda v: self._set_param(agc_gain=v), klass=DragAwareSlider)
         # Eliminada la lógica de dragStarted que interactuaba con los checkboxes eliminados
+=======
+        self.sl_bright = add_slider("Brightness", -2, 2, 0,  lambda v: self._set_param(brightness=v))
+        self.sl_contr = add_slider("Contrast",   -2, 2, 0,  lambda v: self._set_param(contrast=v))
+        self.sl_satur = add_slider("Saturation", -2, 2, 0,  lambda v: self._set_param(saturation=v))
 
-        # Orientación
+        self.cb_awb = add_check("Auto WB", True,  lambda v: self._set_param(awb=v))
+        self.cb_agc = add_check("Auto Gain", True,  lambda v: self._set_param(agc=v))
+        self.cb_aec = add_check("Auto Exposure", True, lambda v: self._set_param(aec=v))
+
+        self.sl_ae_level = add_slider("AE Level", -2, 2, 0, lambda v: self._set_param(ae_level=v) if self.cb_aec.isChecked() else None)
+
+        self.sl_exp  = add_slider("Exposure", 0, 1200, 300, lambda v: self._set_param(aec_value=v), klass=DragAwareSlider)
+        self.sl_gain = add_slider("Gain", 0, 30, 8, lambda v: self._set_param(agc_gain=v), klass=DragAwareSlider)
+        self.sl_exp.dragStarted.connect(lambda: (self.cb_aec.setChecked(False), self._set_param(aec=0)))
+        self.sl_gain.dragStarted.connect(lambda: (self.cb_agc.setChecked(False), self._set_param(agc=0)))
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
+
         row_orient = QHBoxLayout()
+<<<<<<< HEAD
         self.cb_hm = QCheckBox("Mirror"); self.cb_hm.setStyleSheet(checkbox_style)
         self.cb_vf = QCheckBox("Flip");  self.cb_vf.setStyleSheet(checkbox_style)
         self.cb_hm.stateChanged.connect(
@@ -217,12 +270,22 @@ class CameraPanel(QGroupBox):
         self.cb_vf.stateChanged.connect(
             lambda _v: self._set_param(vflip=1 if self.cb_vf.isChecked() else 0))
         row_orient.addWidget(self.cb_hm); row_orient.addWidget(self.cb_vf)
+=======
+        self.cb_hm = QCheckBox("Mirror")
+        self.cb_hm.setStyleSheet(checkbox_style)
+        self.cb_vf = QCheckBox("Flip")
+        self.cb_vf.setStyleSheet(checkbox_style)
+        self.cb_hm.stateChanged.connect(self._on_flip_toggle)
+        self.cb_vf.stateChanged.connect(self._on_flip_toggle)
+        row_orient.addWidget(self.cb_hm)
+        row_orient.addWidget(self.cb_vf)
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         left.addLayout(row_orient)
 
-        # Preestablecidos
         rowp = QHBoxLayout()
         btn_low = QPushButton("Preset: Low Light")
         btn_day = QPushButton("Preset: Daylight")
+<<<<<<< HEAD
         btn_low.clicked.connect(lambda: self._apply_preset(
             aec=0, agc=1, awb=1, brightness=1, contrast=1, saturation=1,
             aec_value=600, agc_gain=8, ae_level=0
@@ -232,20 +295,27 @@ class CameraPanel(QGroupBox):
             aec_value=300, agc_gain=8, ae_level=0
         ))
         rowp.addWidget(btn_low); rowp.addWidget(btn_day)
+=======
+        btn_low.clicked.connect(lambda: self._apply_preset(aec=0, agc=1, awb=1, brightness=1, contrast=1, saturation=1, ae_level=0, aec_value=600, agc_gain=8))
+        btn_day.clicked.connect(lambda: self._apply_preset(aec=1, agc=1, awb=1, brightness=0, contrast=0, saturation=0,ae_level=0, aec_value=300, agc_gain=8))
+        rowp.addWidget(btn_low)
+        rowp.addWidget(btn_day)
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         left.addLayout(rowp)
 
-        # Perfiles
         rowp2 = QHBoxLayout()
         btn_save = QPushButton("Save Profile")
         btn_load = QPushButton("Load Profile")
         btn_save.clicked.connect(self.save_profile)
         btn_load.clicked.connect(self.load_profile)
-        rowp2.addWidget(btn_save); rowp2.addWidget(btn_load)
+        rowp2.addWidget(btn_save)
+        rowp2.addWidget(btn_load)
         left.addLayout(rowp2)
 
-        # Logs
-        left.addWidget(QLabel("Hazmat:")); left.addWidget(self.hazmat_box)
-        left.addWidget(QLabel("QR:")); left.addWidget(self.qr_box)
+        left.addWidget(QLabel("Hazmat:"))
+        left.addWidget(self.hazmat_box)
+        left.addWidget(QLabel("QR:"))
+        left.addWidget(self.qr_box)
         left.addStretch(1)
 
         root = QHBoxLayout()
@@ -253,29 +323,51 @@ class CameraPanel(QGroupBox):
         root.addWidget(self.view, 1)
         self.setLayout(root)
 
-        # Wiring
         self.btn_start.clicked.connect(self.start_stream)
         self.btn_stop.clicked.connect(self.stop_stream)
         self.chk_haz.stateChanged.connect(self.update_toggles)
         self.chk_qr.stateChanged.connect(self.update_toggles)
 
-        # Watchdog: Reinicio si no se reciben frames durante un tiempo 
         self._watchdog = QTimer(self)
         self._watchdog.setInterval(600) 
         self._watchdog.timeout.connect(self._check_watchdog)
         self._watchdog.start()
 
-    # ---- Tuning ----
+    def _get_restart_in_progress(self) -> bool:
+        with QMutexLocker(self._state_mutex):
+            return self._restart_in_progress
+    
+    def _set_restart_in_progress(self, value: bool):
+        with QMutexLocker(self._state_mutex):
+            self._restart_in_progress = value
+    
+    def _update_frame_timestamp(self):
+        with QMutexLocker(self._state_mutex):
+            self._last_frame_ts = time.monotonic()
+    
+    def _get_time_since_last_frame(self) -> float:
+        with QMutexLocker(self._state_mutex):
+            return time.monotonic() - self._last_frame_ts
+
     def _set_param(self, **params):
         url = self.url_edit.text().strip()
         if not url:
             return
-        if not self.client or self.client.stream_url != url:
-            self.client = ESP32CamClient(url)
-        self._set_status("● tuning…", "#fdd835")
-        _ok = self.client.set_params(**params)
-        QTimer.singleShot(200, lambda: self._set_status_connected_if_running())
 
+        if self._param_setter and self._param_setter.isRunning():
+            self._param_setter.wait(150)
+            if self._param_setter.isRunning():
+                try:
+                    self._param_setter.terminate()
+                except Exception:
+                    pass
+
+                self._param_setter.wait(150)
+
+        host = extract_host_from_stream_url(url)
+        self._set_status("● tuning…", "#fdd835")
+
+<<<<<<< HEAD
     def _apply_preset(self, *, aec, agc, awb, brightness, contrast, saturation,
                                  ae_level, aec_value, agc_gain):
         # Eliminada la lógica de QSignalBlocker y la configuración de cb_aec, cb_agc, cb_awb
@@ -287,56 +379,90 @@ class CameraPanel(QGroupBox):
             s.blockSignals(True); s.setValue(int(val)); s.blockSignals(False)
 
         # Fase 1: Enviamos las configuraciones automáticas (aec, agc, awb)
+=======
+        self._param_setter = ParameterSetterThread(host, params)
+        self._param_setter.finished.connect(self._on_param_set_finished)
+        self._param_setter.start()
+
+    def _on_param_set_finished(self, success: bool):
+        QTimer.singleShot(200, self._set_status_connected_if_running)
+        if self._param_setter:
+            self._param_setter.deleteLater()
+            self._param_setter = None
+
+    def _apply_preset(self, *, aec, agc, awb, brightness, contrast, saturation, ae_level, aec_value, agc_gain):
+        with QSignalBlocker(self.cb_aec), QSignalBlocker(self.cb_agc), QSignalBlocker(self.cb_awb):
+            self.cb_aec.setChecked(bool(aec))
+            self.cb_agc.setChecked(bool(agc))
+            self.cb_awb.setChecked(bool(awb))
+        
+        for s, val in ((self.sl_bright, brightness), (self.sl_contr, contrast), (self.sl_satur, saturation), (self.sl_ae_level, ae_level), (self.sl_exp, aec_value), (self.sl_gain, agc_gain)):
+            with QSignalBlocker(s):
+                s.setValue(int(val))
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         self._set_param(aec=int(aec), agc=int(agc), awb=int(awb))
 
-        # Fase 2
         def phase2():
             payload = dict(brightness=int(brightness), contrast=int(contrast), saturation=int(saturation))
+<<<<<<< HEAD
             
             # Enviamos todos los parámetros restantes
             payload["ae_level"] = int(ae_level)
             payload["aec_value"] = int(aec_value)
             payload["agc_gain"] = int(agc_gain)
             
+=======
+            if aec:
+                payload["ae_level"] = int(ae_level)
+            else: 
+                payload["aec_value"] = int(aec_value)
+
+            if not agc: 
+                payload["agc_gain"] = int(agc_gain)
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
             self._set_param(**payload)
+
         QTimer.singleShot(140, phase2)
 
-    # ---- Acciones ----
     def start_stream(self):
         if self.worker and self.worker.isRunning():
             return
+        
         url = self.url_edit.text().strip()
         if not url:
             QMessageBox.warning(self, "URL missing", "Enter a stream URL.")
             return
 
-        # Inicializar detección de QR, solamente si están presentes
-        haz_factory = (lambda: HazmatYOLO("models/yolo.cfg", "models/yolo.weights", "models/labels.names",
-                                          (416, 416), 0.8, 0.4, "opencv")) if HazmatYOLO else None
+        haz_factory = (lambda: HazmatYOLO("models/yolo.cfg", "models/yolo.weights", "models/labels.names", (416, 416), 0.8, 0.4, "opencv")) if HazmatYOLO else None
         qr_factory = (lambda: QRScanner()) if QRScanner else None
 
-        self.worker = CameraWorker(url, hazmat_factory=haz_factory, qr_factory=qr_factory)
+        self.worker = CameraWorker(url, hazmat_factory=haz_factory, qr_factory=qr_factory, target_fps=30.0)
         self.worker.enable_hazmat = self.chk_haz.isChecked() and (haz_factory is not None)
-        self.worker.enable_qr     = self.chk_qr.isChecked() and (qr_factory is not None)
+        self.worker.enable_qr = self.chk_qr.isChecked() and (qr_factory is not None)
 
-        self.worker.frameReady.connect(self.on_frame)
-        self.worker.fpsReady.connect(self.on_fps)
-        self.worker.opened.connect(self.on_opened)
-        self.worker.hazmatDet.connect(self.on_hazmat)
-        self.worker.qrDet.connect(self.on_qr)
+        self.worker.frameReady.connect(self.on_frame, Qt.ConnectionType.QueuedConnection)
+        self.worker.fpsReady.connect(self.on_fps, Qt.ConnectionType.QueuedConnection)
+        self.worker.opened.connect(self.on_opened, Qt.ConnectionType.QueuedConnection)
+        self.worker.hazmatDet.connect(self.on_hazmat, Qt.ConnectionType.QueuedConnection)
+        self.worker.qrDet.connect(self.on_qr, Qt.ConnectionType.QueuedConnection)
 
         self._set_status("● connecting…", "#fdd835")
         self.worker.start()
-        self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
 
     def stop_stream(self):
         if self.worker:
             self.worker.stop()
             self.worker = None
+
         self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
         self.fps_label.setText("Stopped")
         self.view.setText("No video")
-        self.hazmat_box.clear(); self.qr_box.clear()
+        self.hazmat_box.clear()
+        self.qr_box.clear()
         self.hazmat_box.setStyleSheet("background:#222; color:#0f0; border-radius:6px;")
         self.qr_box.setStyleSheet("background:#222; color:#ff0; border-radius:6px;")
         self._set_status("● disconnected", "#e53935")
@@ -344,7 +470,7 @@ class CameraPanel(QGroupBox):
     def update_toggles(self):
         if self.worker:
             self.worker.enable_hazmat = self.chk_haz.isChecked() and (self.worker.hazmat_factory is not None)
-            self.worker.enable_qr     = self.chk_qr.isChecked() and (self.worker.qr_factory is not None)
+            self.worker.enable_qr = self.chk_qr.isChecked() and (self.worker.qr_factory is not None)
 
     def _set_status(self, txt: str, color_hex: str):
         self.status_dot.setText(txt)
@@ -357,18 +483,18 @@ class CameraPanel(QGroupBox):
     def _check_watchdog(self):
         if not (self.worker and self.worker.isRunning()):
             return
-        dt = time.monotonic() - self._last_frame_ts
-        if dt > 2.5 and not self._restart_in_progress:
-            # try soft restart
-            self._restart_in_progress = True
+        
+        dt = self._get_time_since_last_frame()
+        if dt > 2.5 and not self._get_restart_in_progress():
+            self._set_restart_in_progress(True)
             self._set_status("● reconnecting…", "#fdd835")
             self.stop_stream()
-            QTimer.singleShot(400, lambda: (self.start_stream(), self._end_restart()))
+            QTimer.singleShot(400, self._do_restart)
 
-    def _end_restart(self):
-        self._restart_in_progress = False
+    def _do_restart(self):
+        self.start_stream()
+        self._set_restart_in_progress(False)
 
-    # ---- Casillas ----
     def on_opened(self, ok: bool, msg: str):
         if not ok:
             self._set_status("● disconnected", "#e53935")
@@ -377,6 +503,7 @@ class CameraPanel(QGroupBox):
         else:
             self._set_status("● connected", "#43a047")
 
+<<<<<<< HEAD
     def _rotate_view(self, angle: int):
         """Aplica una rotación al QPixmap y actualiza la vista, manejando las dimensiones."""
         
@@ -404,6 +531,30 @@ class CameraPanel(QGroupBox):
                              Qt.AspectRatioMode.KeepAspectRatio,
                              Qt.TransformationMode.SmoothTransformation)
         
+=======
+    def _on_flip_toggle(self, _state=None):
+        if hasattr(self, "_last_frame") and self._last_frame is not None:
+            self.on_frame(self._last_frame)
+
+    def on_frame(self, frame_bgr: np.ndarray):
+        self._update_frame_timestamp()
+        self._last_frame = frame_bgr.copy()
+
+        try:
+            hm = self.cb_hm.isChecked()
+            vf = self.cb_vf.isChecked()
+            if hm and vf:
+                frame_bgr = cv2.flip(frame_bgr, -1)
+            elif hm:
+                frame_bgr = cv2.flip(frame_bgr, 1)
+            elif vf:
+                frame_bgr = cv2.flip(frame_bgr, 0)
+        except Exception as e:
+            print("[on_frame flip error]", e)
+
+        pix = np_to_qpixmap(frame_bgr)
+        scaled = pix.scaled(self.view.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         self.view.setPixmap(scaled)
 
     def on_fps(self, fps: float):
@@ -413,7 +564,8 @@ class CameraPanel(QGroupBox):
         color = "#e53935" if fps < 8 else ("#fdd835" if fps < 18 else "#43a047")
         self.fps_bar.setStyleSheet(
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {color}, stop:1 #222); "
-            f"border-radius:4px;")
+            f"border-radius:4px;"
+        )
         self.fps_bar.setFixedWidth(max(6, w))
 
     def on_hazmat(self, texts):
@@ -432,9 +584,9 @@ class CameraPanel(QGroupBox):
             self.qr_box.setStyleSheet("background:#222; color:#ff0; border-radius:6px;")
             self.qr_box.setText("No QR codes detected")
 
-    # ---- Menú en video (click derecho) ----
     def _show_view_menu(self, pos: QPoint):
         menu = QMenu(self.view)
+<<<<<<< HEAD
         
         # Opciones de rotación
         menu.addSeparator()
@@ -448,6 +600,11 @@ class CameraPanel(QGroupBox):
         act_mirror = menu.addAction("Toggle Mirror")
         act_flip   = menu.addAction("Toggle Flip")
         
+=======
+        act_snap = menu.addAction("Save Snapshot…")
+        act_mirror = menu.addAction("Toggle Mirror")
+        act_flip = menu.addAction("Toggle Flip")
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         chosen = menu.exec(self.view.mapToGlobal(pos))
         
         if chosen is act_rot_0:
@@ -468,15 +625,20 @@ class CameraPanel(QGroupBox):
         elif chosen is act_snap and self.view.pixmap():
             # ... (código existente de snapshot)
             pm = self.view.pixmap()
+<<<<<<< HEAD
             path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
                                                      "Images (*.png *.jpg)")
             if path: pm.save(path)
+=======
+            path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg", "Images (*.png *.jpg)")
+            if path: 
+                pm.save(path)
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         elif chosen is act_mirror:
             self.cb_hm.setChecked(not self.cb_hm.isChecked())
         elif chosen is act_flip:
             self.cb_vf.setChecked(not self.cb_vf.isChecked())
 
-    # ---- Perfiles ----
     def _current_profile(self) -> dict:
         return {
             "awb": 1, # Asumido como activo
@@ -494,15 +656,43 @@ class CameraPanel(QGroupBox):
 
     def save_profile(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Profile", "profile.json", "JSON (*.json)")
-        if not path: return
-        with open(path, "w") as f:
-            json.dump(self._current_profile(), f, indent=2)
+        if not path:
+            return
+        
+        worker = FileIOWorker('save', path, self._current_profile())
+        worker.finished.connect(self._on_profile_saved)
+        worker.start()
+        self._file_worker = worker
+
+    def _on_profile_saved(self, success: bool, msg: str):
+        if success:
+            print(f"Profile saved to {msg}")
+        else:
+            QMessageBox.warning(self, "Save Error", f"Failed to save profile: {msg}")
+        if self._file_worker:
+            self._file_worker.deleteLater()
+            self._file_worker = None
 
     def load_profile(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Profile", "", "JSON (*.json)")
-        if not path: return
-        with open(path, "r") as f:
-            prof = json.load(f)
+        if not path:
+            return
+        
+        worker = FileIOWorker('load', path)
+        worker.finished.connect(lambda success, msg: self._on_profile_loaded(success, msg, worker))
+        worker.start()
+        self._file_worker = worker
+
+    def _on_profile_loaded(self, success: bool, msg: str, worker: FileIOWorker):
+        if not success:
+            QMessageBox.warning(self, "Load Error", f"Failed to load profile: {msg}")
+            if self._file_worker:
+                self._file_worker.deleteLater()
+                self._file_worker = None
+
+            return
+        
+        prof = worker.result
         self._apply_preset(
             aec=prof.get("aec",1), agc=prof.get("agc",1), awb=prof.get("awb",1),
             brightness=prof.get("brightness",0),
@@ -515,10 +705,17 @@ class CameraPanel(QGroupBox):
         self.cb_hm.setChecked(bool(prof.get("hmirror",0)))
         self.cb_vf.setChecked(bool(prof.get("vflip",0)))
         self._set_param(hmirror=int(self.cb_hm.isChecked()), vflip=int(self.cb_vf.isChecked()))
+<<<<<<< HEAD
 
 
 # ===== Panel | Magnetómetro (Código completo omitido por brevedad, asumiendo que es correcto) =====
 from collections import deque
+=======
+        if self._file_worker:
+            self._file_worker.deleteLater()
+            self._file_worker = None
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 class _Sparkline(QWidget):
     def __init__(self, color="#80cbc4", max_samples=200, parent=None):
         super().__init__(parent)
@@ -533,7 +730,13 @@ class _Sparkline(QWidget):
         self._data.clear()
         self.update()
     def paintEvent(self, event):
+<<<<<<< HEAD
         if not self._data: return
+=======
+        if not self._data:
+            return
+        
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
@@ -552,7 +755,9 @@ class _Sparkline(QWidget):
             xy = map_point(i, v, n)
             if last_xy:
                 p.drawLine(last_xy[0], last_xy[1], xy[0], xy[1])
+
             last_xy = xy
+
         p.end()
 
 class MagnetometerPanel(QGroupBox):
@@ -565,18 +770,45 @@ class MagnetometerPanel(QGroupBox):
         self.btn_stop  = QPushButton("Disconnect"); self.btn_stop.setEnabled(False)
         self.status    = QLabel("● disconnected"); self.status.setStyleSheet("color:#e53935; font-weight:bold;")
         self.hz_label  = QLabel("~ Hz: —")
+<<<<<<< HEAD
         self.lab_x = QLabel("X: —"); self.lab_x.setStyleSheet("color:#80cbc4; font: 600 14px 'Inter'")
         self.lab_y = QLabel("Y: —"); self.lab_y.setStyleSheet("color:#ffab91; font: 600 14px 'Inter'")
         self.lab_z = QLabel("Z: —"); self.lab_z.setStyleSheet("color:#fff59d; font: 600 14px 'Inter'")
+=======
+
+        self.lab_x = QLabel("X: —")
+        self.lab_y = QLabel("Y: —")
+        self.lab_z = QLabel("Z: —")
+        self.lab_x.setStyleSheet("color:#80cbc4; font: 600 14px 'Inter'")
+        self.lab_y.setStyleSheet("color:#ffab91; font: 600 14px 'Inter'")
+        self.lab_z.setStyleSheet("color:#fff59d; font: 600 14px 'Inter'")
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         self.sp_x = _Sparkline("#80cbc4")
         self.sp_y = _Sparkline("#ffab91")
         self.sp_z = _Sparkline("#fff59d")
         top = QHBoxLayout()
+<<<<<<< HEAD
         top.addWidget(QLabel("URL:")); top.addWidget(self.url_edit, 1)
         top.addWidget(self.btn_start); top.addWidget(self.btn_stop)
         vals = QHBoxLayout()
         vals.addWidget(self.lab_x); vals.addWidget(self.lab_y); vals.addWidget(self.lab_z)
         vals.addStretch(1); vals.addWidget(self.hz_label); vals.addWidget(self.status)
+=======
+        top.addWidget(QLabel("URL:"))
+        top.addWidget(self.url_edit, 1)
+        top.addWidget(self.btn_start)
+        top.addWidget(self.btn_stop)
+
+        vals = QHBoxLayout()
+        vals.addWidget(self.lab_x)
+        vals.addWidget(self.lab_y)
+        vals.addWidget(self.lab_z)
+        vals.addStretch(1)
+        vals.addWidget(self.hz_label)
+        vals.addWidget(self.status)
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         root = QVBoxLayout()
         root.addLayout(top)
         root.addLayout(vals)
@@ -586,25 +818,51 @@ class MagnetometerPanel(QGroupBox):
         self.setLayout(root)
         self.btn_start.clicked.connect(self.start_stream)
         self.btn_stop .clicked.connect(self.stop_stream)
+<<<<<<< HEAD
     def start_stream(self):
         if self.worker and self.worker.isRunning(): return
         url = self.url_edit.text().strip()
         if not url: return
+=======
+
+    def start_stream(self):
+        if self.worker and self.worker.isRunning():
+            return
+        
+        url = self.url_edit.text().strip()
+        if not url:
+            return
+        
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         self.worker = MagnetometerWorker(url)
-        self.worker.reading.connect(self.on_reading)
-        self.worker.rate.connect(self.on_rate)
-        self.worker.status.connect(self.on_status)
+        self.worker.reading.connect(self.on_reading, Qt.ConnectionType.QueuedConnection)
+        self.worker.rate.connect(self.on_rate, Qt.ConnectionType.QueuedConnection)
+        self.worker.status.connect(self.on_status, Qt.ConnectionType.QueuedConnection)
         self.worker.start()
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self._set_status("● connecting…", "#fdd835")
     def stop_stream(self):
+<<<<<<< HEAD
         if self.worker: self.worker.stop(); self.worker = None
+=======
+        if self.worker:
+            self.worker.stop()
+            self.worker = None
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.hz_label.setText("~ Hz: —")
+<<<<<<< HEAD
         self.sp_x.clear(); self.sp_y.clear(); self.sp_z.clear()
         self._set_status("● disconnected", "#e53935")
+=======
+        self.sp_x.clear()
+        self.sp_y.clear()
+        self.sp_z.clear()
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
     def on_status(self, ok: bool, msg: str):
         color = "#43a047" if ok else "#fdd835"
         self._set_status(f"● {msg}", color)
@@ -614,20 +872,26 @@ class MagnetometerPanel(QGroupBox):
         self.lab_x.setText(f"X: {x:6.2f} µT")
         self.lab_y.setText(f"Y: {y:6.2f} µT")
         self.lab_z.setText(f"Z: {z:6.2f} µT")
-        self.sp_x.append(x); self.sp_y.append(y); self.sp_z.append(z)
+        self.sp_x.append(x)
+        self.sp_y.append(y)
+        self.sp_z.append(z)
         self._set_status("● connected", "#43a047")
     def _set_status(self, txt: str, color_hex: str):
         self.status.setText(txt)
         self.status.setStyleSheet(f"color:{color_hex}; font-weight:bold;")
 
 
+<<<<<<< HEAD
 # ===== Ventana principal (MODIFICADA: Doble Cámara Superior + Magnetómetro Inferior sin ToolBar) =====
+=======
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ESP32-CAM Dual Live View & Magnetometer")
         self.setMinimumSize(QSize(1200, 900)) # Ajuste para acomodar dos cámaras y magnetómetro
 
+<<<<<<< HEAD
         # --- Creación de Paneles ---
         self.camera_panel_a = CameraPanel("Camera Stream A", "http://192.168.137.200/stream")
         self.camera_panel_b = CameraPanel("Camera Stream B", "http://192.168.137.201/stream")
@@ -651,6 +915,37 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         # Barra de utilidades ELIMINADA (ya no se añade QToolBar)
+=======
+        grid = QGridLayout()
+        grid.addWidget(CameraPanel("Camera 1", "http://192.168.50.231:81/stream"), 0, 0)
+        grid.addWidget(CameraPanel("Camera 2", "http://192.168.50.232:81/stream"), 0, 1)
+        grid.addWidget(MagnetometerPanel("FXOS8700 Magnetometer", "http://192.168.50.143/magnetometer/stream"), 1, 0, 1, 2)
+
+        container = QWidget()
+        container.setLayout(grid)
+        self.setCentralWidget(container)
+
+        tb = QToolBar("Controls")
+        self.addToolBar(tb)
+        act_start_all = QAction("Start All", self)
+        act_stop_all = QAction("Stop All", self)
+        act_snap = QAction("Snapshot", self)
+        act_full = QAction("Fullscreen", self)
+        tb.addAction(act_start_all)
+        tb.addAction(act_stop_all)
+        tb.addSeparator()
+        tb.addAction(act_snap)
+        tb.addSeparator()
+        tb.addAction(act_full)
+
+        self.panels = []
+        central_grid = self.centralWidget().layout()
+        for r in range(central_grid.rowCount()):
+            for c in range(central_grid.columnCount()):
+                item = central_grid.itemAtPosition(r, c)
+                if item and item.widget() and isinstance(item.widget(), CameraPanel):
+                    self.panels.append(item.widget())
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 
         # Paneles afectados por los shortcuts (ahora son 3: 2 cámaras + magnetómetro)
         self.all_panels = [self.camera_panel_a, self.camera_panel_b, self.magnetometer_panel]
@@ -658,6 +953,7 @@ class MainWindow(QMainWindow):
         
         # Definiciones de funciones de acción para shortcuts
         def start_all():
+<<<<<<< HEAD
             self.camera_panel_a.start_stream()
             self.camera_panel_b.start_stream()
             self.magnetometer_panel.start_stream()
@@ -666,12 +962,23 @@ class MainWindow(QMainWindow):
             self.camera_panel_a.stop_stream()
             self.camera_panel_b.stop_stream()
             self.magnetometer_panel.stop_stream()
+=======
+            for p in self.panels:
+                p.start_stream()
+
+        def stop_all():
+            for p in self.panels:
+                p.stop_stream()
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 
         def toggle_full():
-            if self.isFullScreen(): self.showNormal()
-            else: self.showFullScreen()
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
 
         def snapshot_active():
+<<<<<<< HEAD
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Select Camera for Snapshot")
             msg_box.setText("Which camera view would you like to save?")
@@ -693,12 +1000,28 @@ class MainWindow(QMainWindow):
                 path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg",
                                                       "Images (*.png *.jpg)")
                 if path: pm.save(path)
+=======
+            for p in self.panels:
+                if p.worker and p.worker.isRunning() and p.view.pixmap():
+                    pm = p.view.pixmap()
+                    path, _ = QFileDialog.getSaveFileName(self, "Save Snapshot", "snapshot.jpg", "Images (*.png *.jpg)")
+                    if path:
+                        pm.save(path)
+
+                    break
+
+        act_start_all.triggered.connect(start_all)
+        act_stop_all.triggered.connect(stop_all)
+        act_full.triggered.connect(toggle_full)
+        act_snap.triggered.connect(snapshot_active)
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 
         # Conexiones de los QShortcuts
         QShortcut(QKeySequence("F"), self, activated=toggle_full)
         QShortcut(QKeySequence("S"), self, activated=snapshot_active)
         
         def space_toggle():
+<<<<<<< HEAD
             # Alterna el estado de todas las cámaras y el magnetómetro
             if self.camera_panel_a.worker and self.camera_panel_a.worker.isRunning(): 
                 stop_all()
@@ -707,6 +1030,47 @@ class MainWindow(QMainWindow):
                 
         QShortcut(QKeySequence("Space"), self, activated=space_toggle)
 
+=======
+            if not self.panels:
+                return
+            
+            p = self.panels[0]
+            if p.worker and p.worker.isRunning():
+                p.stop_stream()
+            else:
+                p.start_stream()
+
+        QShortcut(QKeySequence("Space"), self, activated=space_toggle)
+
+    def closeEvent(self, event):
+        for p in getattr(self, "panels", []):
+            try:
+                if hasattr(p, "worker") and p.worker:
+                    p.worker.stop()
+
+                if getattr(p, "_param_setter", None):
+                    ps = p._param_setter
+                    if ps.isRunning():
+                        try:
+                            ps.requestInterruption()
+                        except Exception:
+                            pass
+
+                        ps.wait(300)
+                        if ps.isRunning():
+                            try:
+                                ps.terminate()
+                            except Exception:
+                                pass
+
+                            ps.wait(200)
+
+            except Exception as e:
+                print("[closeEvent-stop]", e)
+
+        super().closeEvent(event)
+
+>>>>>>> 0b290fe4cba59a12d96db8b6a6cede34fe2aafb4
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet("""

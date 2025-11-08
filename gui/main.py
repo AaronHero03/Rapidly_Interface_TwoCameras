@@ -629,8 +629,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(1200, 900)) # Ajuste para acomodar dos cámaras y magnetómetro
 
         # --- Creación de Paneles ---
-        self.camera_panel_a = CameraPanel("Camera Stream A", "http://192.168.137.200/stream")
-        self.camera_panel_b = CameraPanel("Camera Stream B", "http://192.168.137.201/stream")
+        self.camera_panel_a = CameraPanel("Camera Stream A", "http://192.168.137.200:81/stream")
+        self.camera_panel_b = CameraPanel("Camera Stream B", "http://192.168.137.201:81/stream")
         self.magnetometer_panel = MagnetometerPanel("FXOS8700 Magnetometer", "http://192.168.50.143/magnetometer/stream")
 
         # --- Layout Principal (Vertical) ---

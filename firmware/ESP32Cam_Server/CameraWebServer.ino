@@ -1,6 +1,6 @@
 #include <WiFi.h>
 #include "esp_camera.h" 
-#include "board_config.h" 
+ 
 
 void startCameraServer();
 
